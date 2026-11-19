@@ -1,0 +1,124 @@
+;=================================================
+;进制转换
+;FlameCyclone
+;2024.8.7
+;=================================================
+;进制转换
+;FC_HEX_To_Dec_8        最差耗时 134      指令长度 29
+;=================================================
+;进制转换
+FC_HEX_Data_L               = $200
+FC_HEX_Data_H               = $201
+FC_Dec_16                   = $202
+FC_Dec_1                    = FC_Dec_16 + 0
+FC_Dec_10                   = FC_Dec_16 + 1
+FC_Dec_100                  = FC_Dec_16 + 2
+;=================================================
+
+    .ORG $E000
+    
+Test_Hex = 59999
+;=================================================
+Reset_Program
+    SEI
+    CLD
+    
+    LDA #<Test_Hex
+    STA FC_HEX_Data_L
+    LDA #>Test_Hex
+    STA FC_HEX_Data_H
+    JSR FC_HEX_To_Dec_16
+    
+.Loop
+    JMP .Loop
+
+;=================================================
+;位十六进制转十进制(16位)
+;65535耗时1054 -> 1045 / 946(零页)
+;59999耗时1732 -> 1507 / 1366(零页)
+;9999耗时1507 -> 1257 / 1141(零页)
+;999耗时1054 -> 749 / 688(零页)
+;99耗时616 -> 155 / 150(零页)
+;9耗时130 -> 56 / 51(零页)
+FC_HEX_To_Dec_16
+    BCS FC_HEX_To_Dec_16_65536
+    LDA FC_HEX_Data_H
+    BNE FC_HEX_To_Dec_16_0_65535
+    
+    LDA FC_HEX_Data_L
+    JMP FC_HEX_To_Dec_16_8
+
+FC_HEX_To_Dec_16_65536
+    LDA #06
+    STA FC_Dec_16 + 4
+    LDA #05
+    STA FC_Dec_16 + 3
+    LDA #05
+    STA FC_Dec_16 + 2
+    LDA #03
+    STA FC_Dec_16 + 1
+    LDA #06
+    STA FC_Dec_16 + 0
+    RTS
+FC_HEX_To_Dec_16_0_65535
+    LDY #$00
+    LDX #$04
+FC_HEX_To_Dec_16_Begin
+    LDA FC_HEX_Data_H
+    CMP FC_HEX_To_Dec_16_Data_H,X
+    BCC FC_HEX_To_Dec_16_Continue
+    BNE FC_HEX_To_Dec_16_Sub_L
+    LDA FC_HEX_Data_L
+    CMP FC_HEX_To_Dec_16_Data_L,X
+    BCC FC_HEX_To_Dec_16_Continue
+FC_HEX_To_Dec_16_Sub_L
+    LDA FC_HEX_Data_L
+    SBC FC_HEX_To_Dec_16_Data_L,X
+    STA FC_HEX_Data_L
+    BCS FC_HEX_To_Dec_16_Sub_H
+    DEC FC_HEX_Data_H
+FC_HEX_To_Dec_16_Sub_H
+    LDA FC_HEX_Data_H
+    SEC
+    SBC FC_HEX_To_Dec_16_Data_H,X
+    STA FC_HEX_Data_H
+    INY
+    BNE FC_HEX_To_Dec_16_Begin
+FC_HEX_To_Dec_16_Continue
+    PHA
+    TYA
+    STA FC_Dec_16,X
+    PLA
+    LDY #$00
+    CPX #$02
+    BEQ FC_HEX_To_Dec_16_8
+    DEX
+    BNE FC_HEX_To_Dec_16_Begin
+    STA FC_Dec_16
+    RTS
+    
+FC_HEX_To_Dec_16_8
+    LDA FC_HEX_Data_L
+FC_HEX_To_Dec_16_8_10_Calc
+    CMP #10
+    BCC FC_HEX_To_Dec_16_8_1
+    SBC #10
+    INY
+    BNE FC_HEX_To_Dec_16_8_10_Calc
+FC_HEX_To_Dec_16_8_1
+    STY FC_Dec_10
+    STA FC_Dec_1
+    RTS
+
+FC_HEX_To_Dec_16_Data_L
+    .DB $01,$0A,$64,$E8,$10
+FC_HEX_To_Dec_16_Data_H
+    .DB $00,$00,$00,$03,$27
+
+;=================================================
+;NES 入口
+    .ORG $FFFA
+    .DW 0
+    .DW Reset_Program
+    .DW 0
+    

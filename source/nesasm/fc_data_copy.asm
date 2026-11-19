@@ -1,0 +1,263 @@
+;=================================================
+FC_Copy_Addr = $00
+;-------------------------------------------------------------
+FC_Clear_Val                = FC_Copy_Addr + $00     ;清除模式覆盖值
+FC_Copy_From_L              = FC_Copy_Addr + $00     ;复制来源地址低位
+FC_Copy_From_H              = FC_Copy_Addr + $01     ;复制来源地址高位
+FC_Copy_To_L                = FC_Copy_Addr + $02     ;复制目的地址低位
+FC_Copy_To_H                = FC_Copy_Addr + $03     ;复制目的地址高位
+FC_Copy_Count_L             = FC_Copy_Addr + $04     ;复制长度低位
+FC_Copy_Count_H             = FC_Copy_Addr + $05     ;复制长度高位
+FC_Copy_Port_L              = FC_Copy_Addr + $06     ;配置地址低位
+FC_Copy_Port_H              = FC_Copy_Addr + $07     ;配置地址高位
+;-------------------------------------------------------------
+FC_MODE_RAM_TO_RAM          = $00  ;复制RAM到RAM模式
+FC_MODE_RAM_TO_PPU          = $01  ;复制RAM到PPU模式
+FC_MODE_PPU_TO_RAM          = $02  ;复制PPU到RAM模式
+FC_MODE_PPU_CLEAR           = $03  ;清除PPU模式
+FC_MODE_RAM_CLEAR           = $04  ;清除RAM模式
+;=================================================
+    .INESPRG 1      ;16KB PRG 数量, $01-$EF8(1-3832),即16-61,312 KB
+    .INESCHR 0       ;8KB CHR 数量,$01-$EF8(1-3832),即0-30,656 KB
+    .INESMAP 4          ;Mapper号 (0-4095)
+    .BANK 1
+    .ORG $E000
+;=================================================
+Reset_Program
+    SEI
+    CLD
+    LDA #$00
+    STA $2000
+    STA $2001
+    LDA #$C0
+    STA $4017
+    STA $E000
+    LDX #$FF
+    TXS
+    
+    JSR Data_Copy_Test
+
+.Loop
+    JMP .Loop
+
+;-------------------------------------------------------------
+Data_Copy_Test ;测试例子
+    BIT $FFFF
+    LDX #<Data_Copy_Test_RAM_To_RAM
+    LDY #>Data_Copy_Test_RAM_To_RAM
+    JSR FC_Data_Copy
+    
+    LDX #<Data_Copy_Test_RAM_To_PPU
+    LDY #>Data_Copy_Test_RAM_To_PPU
+    JSR FC_Data_Copy
+    
+    LDX #<Data_Copy_Test_PPU_To_RAM
+    LDY #>Data_Copy_Test_PPU_To_RAM
+    JSR FC_Data_Copy
+    
+    LDX #<Data_Copy_Test_RAM_Clear
+    LDY #>Data_Copy_Test_RAM_Clear
+    JSR FC_Data_Copy
+    
+    LDX #<Data_Copy_Test_PPU_Clear
+    LDY #>Data_Copy_Test_PPU_Clear
+    JSR FC_Data_Copy
+    RTS
+
+Data_Copy_Test_RAM_To_RAM
+    .DB $00,$F0,$00,$02,$00,$04,FC_MODE_RAM_TO_RAM;16591
+    
+Data_Copy_Test_RAM_To_PPU
+    .DB $00,$E0,$00,$20,$00,$04,FC_MODE_RAM_TO_PPU;15558 / 14535
+    
+Data_Copy_Test_PPU_To_RAM
+    .DB $00,$20,$00,$60,$00,$04,FC_MODE_PPU_TO_RAM;15568
+    
+Data_Copy_Test_RAM_Clear
+    .DB $7F,$00,$00,$60,$00,$04,FC_MODE_RAM_CLEAR;11460
+    
+Data_Copy_Test_PPU_Clear
+    .DB $7F,$00,$00,$24,$00,$04,FC_MODE_PPU_CLEAR;9410
+    
+;=================================================
+;数据拷贝
+;编译后长度: BA 字节 (186 字节) -> E5 字节 (229 字节)
+;FC_MODE_RAM_TO_RAM 1KB 耗时21730 -> 16591
+;FC_MODE_RAM_TO_PPU 1KB 耗时19680 -> 15558 / 14535
+;FC_MODE_PPU_TO_RAM 1KB 耗时20712 -> 15567
+;FC_MODE_RAM_CLEAR  1KB 耗时16605 -> 11460
+;FC_MODE_PPU_CLEAR  1KB 耗时12483 -> 9410
+
+;-------------------------------------------------
+;清除RAM模式
+FC_Ram_Clear_Mode
+    LDY #$00
+    LDA FC_Clear_Val
+    LDX FC_Copy_Count_H
+    BEQ FC_Ram_Clear_Mode_Byte_Part
+FC_Ram_Clear_Mode_Page_Write
+    STA (FC_Copy_To_L),Y
+    INY
+    BNE FC_Ram_Clear_Mode_Page_Write
+    INC FC_Copy_To_H
+    DEX
+    BNE FC_Ram_Clear_Mode_Page_Write
+FC_Ram_Clear_Mode_Byte_Part
+    LDX FC_Copy_Count_L
+    BEQ FC_Ram_Clear_Over
+FC_Ram_Clear_Mode_Byte_Write
+    STA (FC_Copy_To_L),Y
+    INY
+    DEX
+    BNE FC_Ram_Clear_Mode_Byte_Write
+FC_Ram_Clear_Over
+    RTS
+
+;-------------------------------------------------
+;清除PPU模式
+FC_Ppu_Clear_Mode
+    LDY #$00
+    LDA FC_Copy_To_H
+    STA $2006
+    LDA FC_Copy_To_L
+    STA $2006
+    LDA FC_Clear_Val
+    LDX FC_Copy_Count_H
+    BEQ FC_Ppu_Clear_Mode_Byte_Part
+FC_Ppu_Clear_Mode_Page_Write
+    STA $2007
+    INY
+    BNE FC_Ppu_Clear_Mode_Page_Write
+    DEX
+    BNE FC_Ppu_Clear_Mode_Page_Write
+FC_Ppu_Clear_Mode_Byte_Part
+    LDX FC_Copy_Count_L
+    BEQ FC_Ppu_Clear_Over
+FC_Ppu_Clear_Mode_Byte_Write
+    STA $2007
+    DEX
+    BNE FC_Ppu_Clear_Mode_Byte_Write
+FC_Ppu_Clear_Over
+    RTS
+
+;-------------------------------------------------
+;数据拷贝参数设置
+FC_Data_Copy
+    STX FC_Copy_Port_L
+    STY FC_Copy_Port_H
+    LDY #$00
+    LDX #$06
+FC_Data_Copy_Addr_Set
+    LDA (FC_Copy_Port_L),Y
+    STA FC_Copy_From_L,Y
+    INY
+    DEX
+    BNE FC_Data_Copy_Addr_Set
+    LDA (FC_Copy_Port_L),Y
+;-------------------------------------------------
+FC_Data_Copy_Mode;复制模式校验
+    CMP #FC_MODE_RAM_TO_RAM
+    BEQ FC_Ram_To_Ram_Mode
+    CMP #FC_MODE_RAM_TO_PPU
+    BEQ FC_Ram_To_Ppu_Mode
+    CMP #FC_MODE_PPU_TO_RAM
+    BEQ FC_Ppu_To_Ram_Mode
+    CMP #FC_MODE_RAM_CLEAR
+    BEQ FC_Ram_Clear_Mode
+    CMP #FC_MODE_PPU_CLEAR
+    BEQ FC_Ppu_Clear_Mode
+    RTS
+;-------------------------------------------------
+;复制RAM到RAM模式
+FC_Ram_To_Ram_Mode
+    LDY #$00
+    LDX FC_Copy_Count_H
+    BEQ FC_Ram_To_Ram_Mode_Byte_Part
+FC_Ram_To_Ram_Mode_Page_Write
+    LDA (FC_Copy_From_L),Y
+    STA (FC_Copy_To_L),Y
+    INY
+    BNE FC_Ram_To_Ram_Mode_Page_Write
+    INC FC_Copy_From_L
+    INC FC_Copy_To_H
+    DEX
+    BNE FC_Ram_To_Ram_Mode_Page_Write
+FC_Ram_To_Ram_Mode_Byte_Part
+    LDX FC_Copy_Count_L
+    BEQ FC_Ram_To_Ram_Over
+FC_Ram_To_Ram_Mode_Byte_Write
+    LDA (FC_Copy_From_L),Y
+    STA (FC_Copy_To_L),Y
+    INY
+    DEX
+    BNE FC_Ram_To_Ram_Mode_Byte_Write
+FC_Ram_To_Ram_Over
+    RTS
+
+;-------------------------------------------------
+;复制RAM到PPU模式
+FC_Ram_To_Ppu_Mode
+    LDY #$00
+    LDA FC_Copy_To_H
+    STA $2006
+    LDA FC_Copy_To_L
+    STA $2006
+    LDX FC_Copy_Count_H
+    BEQ FC_Ram_To_Ppu_Mode_Byte_Part
+FC_Ram_To_Ppu_Mode_Page_Write
+    LDA (FC_Copy_From_L),Y
+    STA $2007
+    INY
+    BNE FC_Ram_To_Ppu_Mode_Page_Write
+    INC FC_Copy_From_H
+    DEX
+    BNE FC_Ram_To_Ppu_Mode_Page_Write
+FC_Ram_To_Ppu_Mode_Byte_Part
+    LDX FC_Copy_Count_L
+    BEQ FC_Ram_To_Ppu_Over
+FC_Ram_To_Ppu_Mode_Byte_Write
+    LDA (FC_Copy_From_L),Y
+    STA $2007
+    INY
+    DEX
+    BNE FC_Ram_To_Ppu_Mode_Byte_Write
+FC_Ram_To_Ppu_Over
+    RTS
+
+;-------------------------------------------------
+;复制PPU到RAM模式
+FC_Ppu_To_Ram_Mode
+    LDY #$00
+    LDA FC_Copy_From_H
+    STA $2006
+    LDA FC_Copy_From_L
+    STA $2006
+    LDA $2007
+    LDX FC_Copy_Count_H
+    BEQ FC_Ppu_To_Ram_Mode_Byte_Part
+FC_Ppu_To_Ram_Mode_Page_Write
+    LDA $2007
+    STA (FC_Copy_To_L),Y
+    INY
+    BNE FC_Ppu_To_Ram_Mode_Page_Write
+    INC FC_Copy_To_H
+    DEX
+    BNE FC_Ppu_To_Ram_Mode_Page_Write
+FC_Ppu_To_Ram_Mode_Byte_Part
+    LDX FC_Copy_Count_L
+    BEQ FC_Ppu_To_Ram_Over
+FC_Ppu_To_Ram_Mode_Byte_Write
+    LDA $2007
+    STA (FC_Copy_To_L),Y
+    INY
+    DEX
+    BNE FC_Ppu_To_Ram_Mode_Byte_Write
+FC_Ppu_To_Ram_Over
+    RTS
+
+;=================================================
+;NES 入口
+    .ORG $FFFA
+    .DW 0
+    .DW Reset_Program
+    .DW 0

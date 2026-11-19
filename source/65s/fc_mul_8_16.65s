@@ -1,0 +1,239 @@
+;=================================================
+;乘法运算
+;FlameCyclone
+;2024.8.7
+;=================================================
+;乘法
+;FC_Mul_8               最差耗时 407      指令长度: 47
+;FC_Mul_8_Fast          最差耗时 184      指令长度: 26
+;FC_Mul_16              最差耗时 1440     指令长度: 92
+;=================================================
+FC_Mul_8_Factor_A           = $80 ;因数A低位
+FC_Mul_8_Factor_B           = $81 ;因数B低位
+FC_Mul_8_Multiple_L         = $84 ;倍数低位
+FC_Mul_8_Multiple_H         = $85 ;倍数高位
+FC_Mul_8_Product_L          = $82 ;乘积低位
+FC_Mul_8_Product_H          = $83 ;乘积高位
+;-------------------------------------------------
+FC_Mul_16_Product_LL        = $80 ;乘积低位
+FC_Mul_16_Product_LH        = $81 ;乘积高位
+FC_Mul_16_Product_HL        = $82 ;乘积低位
+FC_Mul_16_Product_HH        = $83 ;乘积高位
+FC_Mul_16_A_L               = $84 ;因数A低位
+FC_Mul_16_A_H               = $85 ;因数A高位
+FC_Mul_16_B_L               = $86 ;因数B低位
+FC_Mul_16_B_H               = $87 ;因数B高位
+FC_Mul_16_Product_Temp_LL   = $88 ;临时积低位
+FC_Mul_16_Product_Temp_LH   = $89 ;临时积高位
+FC_Mul_16_Product_Temp_HL   = $8A ;临时积低位
+FC_Mul_16_Product_Temp_HH   = $8B ;临时积高位
+FC_Mul_16_BitTest_L         = $8C
+FC_Mul_16_BitTest_H         = $8D
+;=================================================
+    ;.INESPRG 1      ;16KB PRG 数量, $01-$EF8(1-3832),即16-61,312 KB
+    ;.INESCHR 0       ;8KB CHR 数量,$01-$EF8(1-3832),即0-30,656 KB
+    ;.INESMAP 4          ;Mapper号 (0-4095)
+    ;.BANK 1
+    .ORG $E000
+;=================================================
+Reset_Program
+    SEI
+    CLD
+    LDA #$00
+    STA $2000
+    STA $2001
+    LDA #$C0
+    STA $4017
+    STA $E000
+    LDX #$FF
+    TXS
+    
+    JSR Test
+
+.Loop
+    JMP .Loop
+
+;=================================================
+Test
+    JSR Test_Mul_8
+    JSR Test_Mul_16
+    JSR Test_Mul_8_Fast
+    RTS
+
+Test_Mul_8
+    LDA #$FF
+    STA FC_Mul_8_Factor_A
+    STA FC_Mul_8_Factor_B
+    
+    BIT $FFFF
+    JSR FC_Mul_8
+    RTS
+
+Test_Mul_8_Fast
+    LDA #$FF
+    STA FC_Mul_8_Factor_A
+    STA FC_Mul_8_Factor_B
+    
+    BIT $FFFF
+    JSR FC_Mul_8_Fast
+    RTS
+
+Test_Mul_16
+    LDA #$FF
+    STA FC_Mul_16_A_L
+    STA FC_Mul_16_A_H
+    
+    LDA #$FF
+    STA FC_Mul_16_B_L
+    STA FC_Mul_16_B_H
+    
+    BIT $FFFF
+    JSR FC_Mul_16
+    RTS
+
+;=================================================
+;8位整数乘法
+;最多耗时周期: 407 (255 * 255)
+;编译指令长度: 47
+FC_Mul_8
+    LDA #00
+    STA FC_Mul_8_Product_L
+    STA FC_Mul_8_Product_H
+    STA FC_Mul_8_Multiple_L
+
+    ;得到最大加数(乘数 * $80)
+    LDA FC_Mul_8_Factor_A
+    LSR
+    ROR FC_Mul_8_Multiple_L
+    STA FC_Mul_8_Multiple_H
+
+    LDY #$08
+    LDA #$80
+
+;检测乘数B的单独位, 依次检测 $80 $40 $20 $10 $08 $04 $02 $01
+FC_Mul_8_Bit_Test
+    ;乘数进行位测试(将累加器A和乘数相与)
+    BIT FC_Mul_8_Factor_B
+    BEQ FC_Mul_8_Continue
+ 
+;将乘数A放入临时积
+    TAX
+    LDA FC_Mul_8_Multiple_L
+    CLC
+    ADC FC_Mul_8_Product_L
+    STA FC_Mul_8_Product_L
+    LDA FC_Mul_8_Multiple_H
+    ADC FC_Mul_8_Product_H
+    STA FC_Mul_8_Product_H
+    TXA
+;测试位继续右移, 准备下次位测试
+FC_Mul_8_Continue
+    LSR FC_Mul_8_Multiple_H
+    ROR FC_Mul_8_Multiple_L
+    LSR
+    DEY
+    BNE FC_Mul_8_Bit_Test
+FC_Mul_8_End
+    RTS
+
+;=================================================
+;8位整数乘法(来源于: https://www.nesdev.org/wiki/8-bit_Multiply)
+;最多耗时周期: 184 (255 * 255)
+;编译指令长度: 26
+FC_Mul_8_Fast
+    LDA FC_Mul_8_Factor_A
+    LDY FC_Mul_8_Factor_B
+    LSR
+    STA FC_Mul_8_Product_L
+    STY FC_Mul_8_Product_H
+    LDA #$00
+    LDY #$08
+FC_Mul_8_Fast_Loop:
+    BCC FC_Mul_8_Fast_No_Add
+    CLC
+    ADC FC_Mul_8_Product_H
+FC_Mul_8_Fast_No_Add:
+    ROR
+    ROR FC_Mul_8_Product_L
+    DEY
+    BNE FC_Mul_8_Fast_Loop
+    STA FC_Mul_8_Product_H
+    RTS
+
+;=================================================
+;16位整数乘法
+;最多耗时周期: 1440 (255 * 255)
+;编译指令长度: 92
+FC_Mul_16
+    ;清除乘积
+    LDA #00
+    STA FC_Mul_16_Product_LL
+    STA FC_Mul_16_Product_LH
+    STA FC_Mul_16_Product_HL
+    STA FC_Mul_16_Product_HH
+
+    ;设置初始值
+    LDA FC_Mul_16_A_L
+    STA FC_Mul_16_Product_Temp_HL
+    LDA FC_Mul_16_A_H
+    STA FC_Mul_16_Product_Temp_HH
+    LDA #$00
+    STA FC_Mul_16_Product_Temp_LL
+    STA FC_Mul_16_Product_Temp_LH
+       
+    ;计算最大位的乘数积
+    LSR FC_Mul_16_Product_Temp_HH
+    ROR FC_Mul_16_Product_Temp_HL
+    ROR FC_Mul_16_Product_Temp_LH
+
+    LDY #15
+    LDA #$80
+    STA FC_Mul_16_BitTest_H
+    LDA #$00
+    STA FC_Mul_16_BitTest_L
+
+;检测乘数B的单独位
+FC_Mul_16_BitTest
+    LDA FC_Mul_16_BitTest_H
+    BIT FC_Mul_16_B_H
+    BNE FC_Mul_16_Addition
+    LDA FC_Mul_16_BitTest_L
+    BIT FC_Mul_16_B_L
+    BEQ FC_Mul_16_Continue
+
+;将临时积于最终积累加得出结果
+FC_Mul_16_Addition
+    LDA FC_Mul_16_Product_Temp_LL
+    CLC
+    ADC FC_Mul_16_Product_LL
+    STA FC_Mul_16_Product_LL
+    LDA FC_Mul_16_Product_Temp_LH
+    ADC FC_Mul_16_Product_LH
+    STA FC_Mul_16_Product_LH
+    LDA FC_Mul_16_Product_Temp_HL
+    ADC FC_Mul_16_Product_HL
+    STA FC_Mul_16_Product_HL
+    LDA FC_Mul_16_Product_Temp_HH
+    ADC FC_Mul_16_Product_HH
+    STA FC_Mul_16_Product_HH
+    
+ ;测试位继续右移, 准备下次位测试
+FC_Mul_16_Continue
+    LSR FC_Mul_16_Product_Temp_HH
+    ROR FC_Mul_16_Product_Temp_HL
+    ROR FC_Mul_16_Product_Temp_LH
+    ROR FC_Mul_16_Product_Temp_LL
+    LSR FC_Mul_16_BitTest_H
+    ROR FC_Mul_16_BitTest_L
+    DEY
+    BPL FC_Mul_16_BitTest
+FC_Mul_16_End: ;乘法计算结束
+    RTS
+
+;=================================================
+;NES 入口
+    .ORG $FFFA
+    .DW 0
+    .DW Reset_Program
+    .DW 0
+    
